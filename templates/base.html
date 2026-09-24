@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTM-WEB — Post-Translational Modification Interaction Networks</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}home-page{% endblock %}">
+
+    <!-- Global Background Glow Effects -->
+    <div class="home-bg-glow"></div>
+    <div class="home-bg-glow-secondary"></div>
+
+    <main class="home-wrapper">
+
+        <!-- 1. Header Area containing Logo and Menu -->
+        <header class="site-header">
+            <div class="header-inner">
+                <div class="logo-container" id="logo-space">
+                    <a href="/">
+                        <img src="{{ url_for('static', filename='Logo.png') }}" alt="PTM-WEB Logo" class="site-logo">
+                    </a>
+                </div>
+                
+                <nav class="horizontal-menu">
+                    <a href="/" class="menu-item {% if active_page == 'home' %}active{% endif %}">Home</a>
+                    <a href="/about" class="menu-item {% if active_page == 'about' %}active{% endif %}">About Us</a>
+                    <a href="/download" class="menu-item {% if active_page == 'download' %}active{% endif %}">Download</a>
+                    <a href="/contact" class="menu-item {% if active_page == 'contact' %}active{% endif %}">Contact Us</a>
+                    <a href="/faq" class="menu-item {% if active_page == 'faq' %}active{% endif %}">FAQs</a>
+                </nav>
+            </div>
+        </header>
+
+        <!-- Divider between Header and Content -->
+        <hr class="section-hr">
+
+        {% block content %}{% endblock %}
+
+    </main>
+
+    <!-- 5. Footer Area -->
+    <footer class="site-footer" id="contact-section">
+        <div class="home-container" style="padding-top:15px; padding-bottom:15px;">
+            <div class="footer-bottom" style="border-top:none; padding-top:0; margin-top:0;">
+                <p>&copy; 2026 PTM-WEB. Translational Health Science and Technology Institute.</p>
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>

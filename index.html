@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTM Interaction Networks</title>
+    <link rel="stylesheet" href="style.css">
+    
+    <!-- PapaParse for TSV/CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- Cytoscape.js for Network Visualization -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Left Sidebar: Controls -->
+        <div id="sidebar">
+            <h2>PTM Networks</h2>
+            
+            <div class="control-group">
+                <label for="master-file">1. Master PTM Proteins (TSV)</label>
+                <input type="file" id="master-file" accept=".tsv,.csv,.txt" />
+                <small>6 columns: Gene name, Accession, Catalytic activity, W/E annotation, Modification, Enzyme class</small>
+            </div>
+
+            <div class="control-group">
+                <label for="string-file">2. STRING Interactors (TSV)</label>
+                <input type="file" id="string-file" accept=".tsv,.csv,.txt" />
+                <small>Format: node1, node2, score...</small>
+            </div>
+
+            <div class="control-group">
+                <label for="query-file">3. Query Proteins (TXT)</label>
+                <input type="file" id="query-file" accept=".txt" />
+                <small>One gene name per line</small>
+            </div>
+
+            <div class="control-group">
+                <label for="score-threshold">STRING Score Threshold: <span id="score-display">0.400</span></label>
+                <input type="range" id="score-threshold" min="0" max="1" step="0.01" value="0.4">
+            </div>
+
+            <button id="generate-btn" disabled>Generate Network</button>
+
+            <!-- Node Details Panel -->
+            <div id="node-details" class="hidden">
+                <h3>Protein Details</h3>
+                <div id="details-content">
+                    <p>Select a node to view details.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div id="main-content">
+            <!-- Cytoscape Graph Container -->
+            <div id="cy"></div>
+
+            <!-- Floating Legend -->
+            <div id="legend">
+                <h4>Legend</h4>
+                <div class="legend-item">
+                    <div class="shape triangle"></div>
+                    <span>Writer</span>
+                </div>
+                <div class="legend-item">
+                    <div class="shape circle"></div>
+                    <span>Eraser</span>
+                </div>
+                <div class="legend-item">
+                    <div class="shape diamond"></div>
+                    <span>Both (W & E)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="shape square"></div>
+                    <span>Interactor</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

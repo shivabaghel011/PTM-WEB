@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="info-section">
+    <div class="home-container">
+        <h2 class="section-title">Data Download</h2>
+        <div class="section-divider"></div>
+        <p class="section-subtitle">
+            Download our curated PTM writer/eraser datasets, reaction annotations, and STRING interactomes.
+        </p>
+
+        <div style="background: rgba(255, 255, 255, 0.75); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px; box-shadow: var(--shadow); max-width: 800px; margin: 0 auto; line-height: 1.7;">
+            <p style="color: var(--text-muted); margin-bottom: 25px;">
+                We provide the fully processed, tab-separated values (TSV) datasets for offline analysis. The files contain details on gene names, accessions, catalytic reactions, modifications, and partner STRING linkages.
+            </p>
+
+            <div style="display: flex; flex-direction: column; gap: 15px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: var(--bg-card2); border: 1px solid var(--border); border-radius: var(--radius);">
+                    <div>
+                        <strong style="color: var(--text); display: block;">Curated Master PTM Dataset (Human)</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">Tab-separated text file, contains all curated writer and eraser details.</span>
+                    </div>
+                    <a href="#" style="background: var(--blue); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; pointer-events: none; opacity: 0.6;">Download TSV</a>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px; background: var(--bg-card2); border: 1px solid var(--border); border-radius: var(--radius);">
+                    <div>
+                        <strong style="color: var(--text); display: block;">STRING Interactor Network File</strong>
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">Filtered interactions matching high-quality proteomes.</span>
+                    </div>
+                    <a href="#" style="background: var(--blue); color: white; padding: 8px 16px; border-radius: 6px; font-weight: 600; font-size: 0.85rem; pointer-events: none; opacity: 0.6;">Download TSV</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+<hr class="section-hr">
+{% endblock %}

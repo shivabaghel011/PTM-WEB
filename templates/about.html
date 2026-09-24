@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="info-section">
+    <div class="home-container">
+        <h2 class="section-title">About Us &amp; PTM-WEB</h2>
+        <div class="section-divider"></div>
+        <p class="section-subtitle">
+            Meet the developers and researchers behind the Post-Translational Modification Interaction Webserver.
+        </p>
+
+        <div style="background: rgba(255, 255, 255, 0.75); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px; box-shadow: var(--shadow); max-width: 800px; margin: 0 auto; line-height: 1.7;">
+            <h3 style="font-size: 1.3rem; margin-bottom: 15px; color: var(--text);">Our Mission</h3>
+            <p style="color: var(--text-muted); margin-bottom: 20px;">
+                At the NCR Biotech Science Cluster, our goal is to build computational biology platforms that accelerate proteomics research. PTM-WEB is designed as a centralized gateway to explore writer and eraser enzyme kinetics, target substrates, and topological network connections from functional datasets.
+            </p>
+
+            <h3 style="font-size: 1.3rem; margin-bottom: 15px; color: var(--text);">Research Team</h3>
+            <p style="color: var(--text-muted); margin-bottom: 20px;">
+                Our laboratory focuses on structural bioinformatics, protein network modeling, and computational mass spectrometry data parsing. This database is part of our ongoing effort to catalog biochemical signaling complexes.
+            </p>
+
+            <div style="background: var(--bg-card2); border-left: 4px solid var(--blue); padding: 15px 20px; border-radius: 4px; font-size: 0.88rem; color: var(--text-muted);">
+                <strong>Reference:</strong> If you use PTM-WEB in your publication, please cite: <em>Yadav et al. PTM-WEB: A Curated Webserver for Protein Modification Networks (2026).</em>
+            </div>
+        </div>
+    </div>
+</section>
+<hr class="section-hr">
+{% endblock %}

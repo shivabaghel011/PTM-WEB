@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block content %}
+        {% if error %}
+        <div class="home-container" style="padding-top: 15px; padding-bottom: 0;">
+            <div class="alert-error">{{ error }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Centered Query Box Section -->
+        <section class="query-section">
+            <div class="home-container query-container">
+                <form action="/query" method="POST" class="query-card glassmorphic">
+                    
+                    <div class="query-header-row">
+                        <label class="query-box-label">
+                            <span class="step-num">1</span>
+                            Enter Query Protein(s)
+                        </label>
+                        
+                        <!-- Toggle buttons for Single/Multiple Query -->
+                        <div class="query-toggle-group" id="query-mode-toggle">
+                            <button type="button" class="toggle-btn active" data-mode="single">Single Query</button>
+                            <button type="button" class="toggle-btn" data-mode="multiple">Multiple Query</button>
+                        </div>
+                    </div>
+
+                    <textarea
+                        id="proteins"
+                        name="proteins"
+                        rows="1"
+                        class="single-line-textarea"
+                        placeholder="e.g. KAT2A"
+                        required
+                    ></textarea>
+
+                    <p class="input-hint" id="query-hint">Enter a single gene name.</p>
+
+                    <label class="query-box-label">
+                        <span class="step-num">2</span>
+                        Specify Species Name or Taxon ID
+                    </label>
+
+                    <div class="input-with-icon" style="position: relative; width: 100%;">
+                        <svg class="input-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M2 22s1-4 10-4 10 4 10 4M12 14a6 6 0 1 0 0-12 6 6 0 0 0 0 12z"/></svg>
+                        <input
+                            type="text"
+                            id="species"
+                            name="species"
+                            placeholder="Start typing species name or taxID... (e.g. Homo, 9606)"
+                            autocomplete="off"
+                            required
+                        >
+                        <button type="button" id="species-dropdown-toggle" style="position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 0.8rem; padding: 5px;">▼</button>
+                        
+                        <!-- Custom dropdown menu -->
+                        <div id="species-dropdown" class="custom-dropdown" style="display: none;"></div>
+                    </div>
+
+                    <p class="input-hint">Searchable dropdown based on high-quality proteomes (CPD and BUSCO &ge; 90%).</p>
+
+                    <!-- Submit Query Button -->
+                    <button type="submit" class="btn-primary submit-query-btn">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                        Submit
+                    </button>
+
+                </form>
+            </div>
+        </section>
+
+        <!-- Divider between Query section and Footer -->
+        <hr class="section-hr">
+
+    <!-- Interactive script to control Single/Multiple toggles and slider live readout -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+
+
+            // 2. Single / Multiple query toggle logic
+            var toggleGroup = document.getElementById('query-mode-toggle');
+            var textarea = document.getElementById('proteins');
+            var hint = document.getElementById('query-hint');
+
+            toggleGroup.addEventListener('click', function(e) {
+                var btn = e.target.closest('.toggle-btn');
+                if (!btn) return;
+
+                // Deactivate others, activate clicked
+                var btns = toggleGroup.querySelectorAll('.toggle-btn');
+                btns.forEach(function(b) { b.classList.remove('active'); });
+                btn.classList.add('active');
+
+                var mode = btn.getAttribute('data-mode');
+                if (mode === 'single') {
+                    // Sizing for 1 standard line
+                    textarea.className = 'single-line-textarea';
+                    textarea.rows = 1;
+                    textarea.placeholder = 'e.g. KAT2A';
+                    hint.textContent = 'Enter a single gene name.';
+                    
+                    // Prevent enter key in single mode (submits instead, or just strips newlines)
+                    textarea.addEventListener('keydown', handleSingleModeEnter);
+                } else {
+                    // Sizing for 5 standard lines
+                    textarea.className = 'multi-line-textarea';
+                    textarea.rows = 5;
+                    textarea.placeholder = 'e.g.\nKAT2A\nHDAC1\nEZH2\nSETD2\nKDM5C\n(one per line, scrollable)';
+                    hint.textContent = 'Enter one protein gene name per line. Sizing fits 5 lines, scrollable for more.';
+                    
+                    textarea.removeEventListener('keydown', handleSingleModeEnter);
+                }
+            });
+
+            function handleSingleModeEnter(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    textarea.form.submit();
+                }
+            }
+
+            // Bind keydown to single-line textarea by default on load
+            textarea.addEventListener('keydown', handleSingleModeEnter);
+
+            // 3. Custom dropdown logic for Species search
+            var speciesInput = document.getElementById('species');
+            var dropdown = document.getElementById('species-dropdown');
+            var toggleBtn = document.getElementById('species-dropdown-toggle');
+            var allSpeciesList = {{ species_list | tojson | safe }};
+            var activeSpeciesList = allSpeciesList;
+            var isGeneFiltered = false;
+
+            function renderDropdown(items) {
+                dropdown.innerHTML = '';
+                if (!items || items.length === 0) {
+                    dropdown.style.display = 'none';
+                    return;
+                }
+
+                // If gene-filtered, display a header showing number of matched species
+                if (isGeneFiltered && items.length > 0) {
+                    var headerDiv = document.createElement('div');
+                    headerDiv.className = 'dropdown-header-note';
+                    headerDiv.style.cssText = 'padding: 6px 14px; font-size: 0.72rem; font-weight: 700; color: var(--blue); background: rgba(59,130,246,0.08); border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 10;';
+                    headerDiv.textContent = 'Species with queried gene (' + items.length + ' available)';
+                    dropdown.appendChild(headerDiv);
+                }
+                
+                items.forEach(function(item) {
+                    var div = document.createElement('div');
+                    div.className = 'dropdown-item';
+                    div.textContent = item.name + ' (ID: ' + item.id + ')';
+                    div.addEventListener('click', function() {
+                        speciesInput.value = item.name + ' (ID: ' + item.id + ')';
+                        dropdown.style.display = 'none';
+                    });
+                    dropdown.appendChild(div);
+                });
+                dropdown.style.display = 'block';
+            }
+
+            function filterItems(query) {
+                var val = (query || '').toLowerCase().trim();
+                var listToSearch = activeSpeciesList;
+                if (!val) return listToSearch;
+
+                var filtered = listToSearch.filter(function(item) {
+                    var fullText = (item.name + ' ' + item.id).toLowerCase();
+                    return fullText.includes(val);
+                });
+
+                // If user typed something not matching the active filtered list, allow searching across all species
+                if (filtered.length === 0 && isGeneFiltered) {
+                    filtered = allSpeciesList.filter(function(item) {
+                        var fullText = (item.name + ' ' + item.id).toLowerCase();
+                        return fullText.includes(val);
+                    });
+                }
+                return filtered;
+            }
+
+            speciesInput.addEventListener('input', function() {
+                var filtered = filterItems(speciesInput.value);
+                renderDropdown(filtered);
+            });
+
+            speciesInput.addEventListener('focus', function() {
+                // When focusing, show all items in activeSpeciesList so user can scroll down through them
+                renderDropdown(activeSpeciesList);
+            });
+
+            toggleBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (dropdown.style.display === 'block') {
+                    dropdown.style.display = 'none';
+                } else {
+                    renderDropdown(activeSpeciesList);
+                }
+            });
+
+            document.addEventListener('click', function(e) {
+                if (e.target !== speciesInput && e.target !== toggleBtn && !dropdown.contains(e.target)) {
+                    dropdown.style.display = 'none';
+                }
+            });
+
+            // Auto-detect species from protein input
+            var lastQueryChecked = "";
+            function autoDetectSpecies() {
+                var text = textarea.value.trim();
+                if (!text) {
+                    // Gene box is empty: restore all species in dropdown
+                    isGeneFiltered = false;
+                    activeSpeciesList = allSpeciesList;
+                    lastQueryChecked = "";
+                    if (dropdown.style.display === 'block') {
+                        renderDropdown(activeSpeciesList);
+                    }
+                    return;
+                }
+
+                if (text === lastQueryChecked) return;
+                lastQueryChecked = text;
+                
+                fetch('/api/detect_species', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ genes: text })
+                })
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    if (data && data.species && data.species.length > 0) {
+                        isGeneFiltered = true;
+                        activeSpeciesList = data.species;
+                        
+                        // Auto-fill species with default (Human 9606 if present, or first match)
+                        if (data.default) {
+                            speciesInput.value = data.default.name + ' (ID: ' + data.default.id + ')';
+                        }
+                        
+                        if (dropdown.style.display === 'block') {
+                            renderDropdown(activeSpeciesList);
+                        }
+                    } else {
+                        // No specific match found, fallback to all species
+                        isGeneFiltered = false;
+                        activeSpeciesList = allSpeciesList;
+                        if (dropdown.style.display === 'block') {
+                            renderDropdown(activeSpeciesList);
+                        }
+                    }
+                })
+                .catch(function(err) {
+                    console.error("Error auto-detecting species:", err);
+                });
+            }
+
+            function debounce(func, wait) {
+                var timeout;
+                return function() {
+                    var context = this, args = arguments;
+                    clearTimeout(timeout);
+                    timeout = setTimeout(function() {
+                        func.apply(context, args);
+                    }, wait);
+                };
+            }
+
+            textarea.addEventListener('input', debounce(autoDetectSpecies, 400));
+            textarea.addEventListener('blur', autoDetectSpecies);
+        });
+    </script>
+{% endblock %}

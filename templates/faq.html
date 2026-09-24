@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="info-section">
+    <div class="home-container">
+        <h2 class="section-title">Frequently Asked Questions (FAQs)</h2>
+        <div class="section-divider"></div>
+        <p class="section-subtitle">
+            Find answers to common questions about PTM-WEB datasets, filtering, and visualization.
+        </p>
+
+        <div style="background: rgba(255, 255, 255, 0.75); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 40px; box-shadow: var(--shadow); max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 25px; line-height: 1.6;">
+            <div>
+                <h3 style="font-size: 1.1rem; margin-bottom: 8px; color: var(--text);">Q1: What are Writers and Erasers in PTM-WEB?</h3>
+                <p style="color: var(--text-muted); font-size: 0.95rem;">
+                    Writers are enzymes that catalyze the addition of post-translational modifications (e.g. acetyltransferases, methyltransferases). Erasers are enzymes that remove these modifications (e.g. deacetylases, demethylases).
+                </p>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid var(--border); margin: 0;">
+
+            <div>
+                <h3 style="font-size: 1.1rem; margin-bottom: 8px; color: var(--text);">Q2: How is the STRING threshold score used?</h3>
+                <p style="color: var(--text-muted); font-size: 0.95rem;">
+                    The threshold filters out low-confidence protein-protein interactions. Scoring ranges from 0.0 to 1.0 (with 0.400 representing medium confidence and 0.700 representing high confidence).
+                </p>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid var(--border); margin: 0;">
+
+            <div>
+                <h3 style="font-size: 1.1rem; margin-bottom: 8px; color: var(--text);">Q3: Where can I find the filtered species?</h3>
+                <p style="color: var(--text-muted); font-size: 0.95rem;">
+                    All available species in the dropdown pass the UniProt proteome quality filters: CPD classification as either Standard or Close to standard, and BUSCO completeness $\ge 90\%$, fragmented $\le 5\%$, and missing $\le 5\%$.
+                </p>
+            </div>
+
+            <hr style="border: none; border-top: 1px solid var(--border); margin: 0;">
+
+            <div>
+                <h3 style="font-size: 1.1rem; margin-bottom: 8px; color: var(--text);">Q4: How do I export the interaction networks?</h3>
+                <p style="color: var(--text-muted); font-size: 0.95rem;">
+                    On the results page, you can use the viewport buttons in the top-right of the network canvas: the expand icon fits the network to the screen, and the download arrow exports a PNG file directly.
+                </p>
+            </div>
+        </div>
+    </div>
+</section>
+<hr class="section-hr">
+{% endblock %}
