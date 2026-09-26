@@ -2,6 +2,8 @@ import os
 import csv
 import json
 import re
+import time
+import requests
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
@@ -865,6 +867,162 @@ def api_network():
     return jsonify(network)
 
 
+# ─────────────────────────────────────────────────────────────────
+# DOMAIN GRAPH — UniProt + InterPro (Pfam/SMART) domain data, merged
+# with our own curated Master Writer/Eraser role, cached in memory.
+# ─────────────────────────────────────────────────────────────────
+DOMAIN_CACHE = {}                # { accession: {'ts': float, 'data': dict} }
+DOMAIN_CACHE_TTL_SECONDS = 60 * 60 * 24   # domain/PTM annotations barely change — cache a day
+
+
+def classify_ptm_category(feature_type, description):
+    """Buckets a UniProt PTM feature into a chemistry category so the frontend can
+    give it a distinct marker shape (phospho=triangle, acetyl=circle, etc). Mirrors
+    the frontend's classifyPtmCategory() so backend and client-fallback paths agree."""
+    d = (description or '').lower()
+    if feature_type == 'Glycosylation':
+        return 'glyco'
+    if feature_type == 'Lipidation':
+        return 'lipid'
+    if 'phospho' in d:
+        return 'phospho'
+    if 'acetyl' in d:
+        return 'acetyl'
+    if any(k in d for k in ('glutaryl', 'succinyl', 'malonyl', 'crotonyl', 'propionyl', 'butyryl')):
+        return 'acyl'
+    if 'methyl' in d:
+        return 'methyl'
+    if 'ubiquitin' in d or 'sumo' in d or 'isopeptide' in d:
+        return 'ubiquitin'
+    if any(k in d for k in ('palmitoyl', 'myristoyl', 'prenyl', 'farnesyl', 'geranylgeranyl')):
+        return 'lipid'
+    if 'hydroxy' in d:
+        return 'hydroxyl'
+    if 'nitrat' in d:
+        return 'nitration'
+    if 'adp-ribosyl' in d or 'adp ribosyl' in d:
+        return 'adpRibosyl'
+    if 'citrullin' in d:
+        return 'citrullin'
+    return 'other'
+
+
+def fetch_uniprot_domain_data(accession):
+    """Returns (length, sequence, uniprot_domains, ptms). Raises on network/HTTP failure —
+    UniProt is the primary source, so we don't want to silently hide a failure here."""
+    url = f"https://rest.uniprot.org/uniprotkb/{accession}.json"
+    params = {"fields": "sequence,ft_domain,ft_mod_res,ft_carbohyd,ft_lipid,ft_crosslnk"}
+    resp = requests.get(url, params=params, timeout=8)
+    resp.raise_for_status()
+    entry = resp.json()
+
+    seq_obj = entry.get('sequence') or {}
+    length = seq_obj.get('length')
+    sequence = seq_obj.get('value')
+    domains = []
+    ptms = []
+    for f in entry.get('features', []):
+        loc = f.get('location') or {}
+        start = ((loc.get('start') or {}).get('value'))
+        end = ((loc.get('end') or {}).get('value'))
+        if not start:
+            continue
+        ftype = f.get('type')
+        desc = f.get('description') or ftype
+        if ftype == 'Domain':
+            domains.append({'start': start, 'end': end or start, 'name': desc})
+        elif ftype in ('Modified residue', 'Cross-link', 'Lipidation', 'Glycosylation'):
+            ptms.append({
+                'position': start,
+                'type': desc,
+                'category': classify_ptm_category(ftype, desc),
+            })
+    return length, sequence, domains, ptms
+
+
+def fetch_interpro_domain_tracks(accession):
+    """Returns e.g. {'pfam': [...], 'smart': [...]}. Never raises — InterPro is a
+    'nice to have' second opinion on domain boundaries, so any failure just means
+    the frontend falls back to UniProt's own (coarser) Domain annotations."""
+    tracks = {}
+    try:
+        url = f"https://www.ebi.ac.uk/interpro/api/entry/all/protein/uniprot/{accession}/"
+        resp = requests.get(url, params={'page_size': 100}, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+        for result in data.get('results', []):
+            meta = result.get('metadata') or {}
+            db = (meta.get('source_database') or '').lower()
+            if db not in ('pfam', 'smart'):
+                continue  # keep the graph readable — just the two most common signature DBs
+            name = meta.get('name') or meta.get('accession')
+            for prot in result.get('proteins', []) or []:
+                for loc in prot.get('entry_protein_locations') or []:
+                    for frag in loc.get('fragments') or []:
+                        start = frag.get('start')
+                        end = frag.get('end')
+                        if not start:
+                            continue
+                        tracks.setdefault(db, []).append({'start': start, 'end': end or start, 'name': name})
+    except Exception as e:
+        print(f"[WARN] InterPro lookup failed for {accession}: {e}")
+    return tracks
+
+
+@app.route('/api/domains/<accession>')
+def api_domains(accession):
+    accession = accession.strip().upper()
+    if not accession:
+        return jsonify({'error': 'No accession provided.'}), 400
+
+    cached = DOMAIN_CACHE.get(accession)
+    if cached and (time.time() - cached['ts'] < DOMAIN_CACHE_TTL_SECONDS):
+        return jsonify(cached['data'])
+
+    try:
+        length, sequence, uniprot_domains, ptms = fetch_uniprot_domain_data(accession)
+    except Exception as e:
+        return jsonify({'error': f'Could not fetch UniProt data for {accession}: {e}'}), 502
+
+    warnings = []
+    interpro_tracks = fetch_interpro_domain_tracks(accession)
+    if not interpro_tracks:
+        warnings.append('InterPro (Pfam/SMART) data unavailable — showing UniProt domains only.')
+
+    # Cross-reference against our own curated Master Writer/Eraser table so the
+    # PTM markers are colored by OUR curated role, not a guess made on the frontend.
+    gene_name, role = '', ''
+    gene_taxon = accession_to_gene.get(accession)
+    if gene_taxon:
+        gene_name, taxon = gene_taxon
+        master_info = master_writers_erasers.get((gene_name, taxon))
+        if master_info:
+            raw_role = (master_info.get('annotation') or '').strip().lower()
+            if raw_role in ('writer-eraser', 'both', 'w/e'):
+                role = 'both'
+            elif raw_role in ('writer', 'w'):
+                role = 'writer'
+            elif raw_role in ('eraser', 'e'):
+                role = 'eraser'
+    for p in ptms:
+        p['role'] = role or 'other'
+
+    domain_tracks = {'uniprot': uniprot_domains}
+    domain_tracks.update(interpro_tracks)
+
+    result = {
+        'accession': accession,
+        'gene': gene_name,
+        'length': length,
+        'sequence': sequence,
+        'ptms': ptms,
+        'domain_tracks': domain_tracks,
+        'warnings': warnings,
+    }
+    DOMAIN_CACHE[accession] = {'ts': time.time(), 'data': result}
+    return jsonify(result)
+
+
 @app.route('/api/detect_species', methods=['POST'])
 def api_detect_species():
     """AJAX endpoint — detect all species containing the queried gene(s)."""
@@ -911,6 +1069,4 @@ def api_detect_species():
 
 # ─────────────────────────────────────────────────────────────────
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
-
-
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=True)

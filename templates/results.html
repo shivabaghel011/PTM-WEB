@@ -3,6 +3,7 @@
 {% block head %}
     <title>Network Results — Interaction Network</title>
     <script src="{{ url_for('static', filename='cytoscape.min.js') }}"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
 {% endblock %}
 
 {% block body_class %}results-page{% endblock %}
@@ -23,9 +24,16 @@
             </button>
         </div>
         <div class="topbar-title">
-            <span>Interaction Network</span>
+            <div class="view-select-wrap">
+                <select id="view-select" class="view-select">
+                    <option value="interaction">Interaction Network</option>
+                    <option value="domain">Domain Graph</option>
+                    <option value="pathway">Pathway Cascade</option>
+                </select>
+                <svg class="view-select-caret" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>
+            </div>
         </div>
-        <div class="topbar-stats">
+        <div class="topbar-stats" id="topbar-stats">
             <span class="stat-chip">{{ node_count }} nodes</span>
             <span class="stat-chip">{{ edge_count }} edges</span>
         </div>
@@ -86,11 +94,16 @@
             </div>
         </aside>
 
-        <!-- Right Main View (Network wrapper + Resizer + Table section) -->
+        <!-- Right Main View (Network/Domain/Pathway wrapper + Resizer + Table section) -->
         <div class="results-main">
-            
-            <!-- Cytoscape Canvas wrapper -->
-            <div class="network-wrapper" id="network-wrapper" style="height: 420px;">
+
+          <!-- Visual area — the dropdown swaps which view-panel is visible inside here.
+               Kept as #network-wrapper (unchanged id) so the existing resize-drag bar
+               and tooltip-boundary logic in network.js keep working without changes. -->
+          <div class="network-wrapper" id="network-wrapper" style="height: 420px;">
+
+            <!-- VIEW: Interaction Network -->
+            <div class="view-panel active" id="view-panel-interaction">
                 <div id="cy"></div>
                 <div id="network-tooltip" class="tooltip-bubble" style="display:none;"></div>
                 <div class="network-controls">
@@ -99,10 +112,47 @@
                 </div>
             </div>
 
+            <!-- VIEW: Domain Graph -->
+            <div class="view-panel" id="view-panel-domain" style="display:none;">
+                <div class="domain-graph-topbar">
+                    <div class="domain-protein-select-wrap" id="domain-protein-select-wrap" style="display:none;">
+                        <label for="domain-protein-select">Protein</label>
+                        <select id="domain-protein-select"></select>
+                    </div>
+                    <div id="domain-status" class="domain-status">Select "Domain Graph" to load UniProt domain &amp; PTM data.</div>
+                </div>
+                <div id="domain-cy" class="domain-cy"></div>
+                <div id="domain-tooltip" class="tooltip-bubble" style="display:none;"></div>
+                <div class="domain-legend">
+                    <span><span class="dg-dot" style="background:#e11d48"></span> Writer PTM</span>
+                    <span><span class="dg-dot" style="background:#22c55e"></span> Eraser PTM</span>
+                    <span><span class="dg-dot" style="background:var(--purple)"></span> Writer &amp; Eraser PTM</span>
+                    <span><span class="dg-dot" style="background:#cbd5e1"></span> Other modification</span>
+                </div>
+                <div class="domain-type-legend" id="domain-type-legend"></div>
+                <div class="domain-sequence-panel" id="domain-sequence-panel" style="display:none;">
+                    <div class="domain-sequence-header">
+                        <span id="domain-sequence-title"></span>
+                        <button type="button" id="domain-sequence-close" class="domain-sequence-close" aria-label="Close">&times;</button>
+                    </div>
+                    <div class="domain-sequence-body" id="domain-sequence-body"></div>
+                </div>
+            </div>
+
+            <!-- VIEW: Pathway Cascade (placeholder — wired up next) -->
+            <div class="view-panel" id="view-panel-pathway" style="display:none;">
+                <div class="view-placeholder">
+                    <h2>Pathway Cascade</h2>
+                    <p>Pathway-level cascade visualization — coming next.</p>
+                </div>
+            </div>
+
+          </div> <!-- /network-wrapper -->
+
             <!-- Horizontal Resizer Bar -->
             <div class="h-resizer" id="h-resizer"></div>
 
-            <!-- Resizable Tabbed Tables Section -->
+            <!-- Resizable Tabbed Tables Section — stays visible across every view now -->
             <div class="table-section" id="table-section">
                            <!-- 1. General Information Table -->
                 <div id="general-table-tab" class="table-tab-content active">
@@ -213,4 +263,40 @@
     var SPECIES_VAL    = {{ selected_species | tojson }};
 </script>
 <script src="{{ url_for('static', filename='network.js') }}"></script>
+
+<!-- View switcher: Interaction Network / Domain Graph / Pathway Cascade -->
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    var viewSelect = document.getElementById('view-select');
+    var panels = {
+        interaction: document.getElementById('view-panel-interaction'),
+        domain:      document.getElementById('view-panel-domain'),
+        pathway:     document.getElementById('view-panel-pathway')
+    };
+    var topbarStats = document.getElementById('topbar-stats');
+
+    viewSelect.addEventListener('change', function () {
+        var choice = viewSelect.value;
+        Object.keys(panels).forEach(function (key) {
+            panels[key].style.display = (key === choice) ? '' : 'none';
+            panels[key].classList.toggle('active', key === choice);
+        });
+        // Node/edge stat chips only make sense for the interaction network view
+        topbarStats.style.display = (choice === 'interaction') ? '' : 'none';
+
+        // Re-fit the cytoscape canvas if returning to the interaction view,
+        // since it may have been laid out while hidden (0 width/height).
+        if (choice === 'interaction' && window.cy && typeof window.cy.resize === 'function') {
+            window.cy.resize();
+            window.cy.fit();
+        }
+
+        // Lazily build the Domain Graph the first time it's selected
+        // (and re-fit it on subsequent visits, since it was laid out while hidden).
+        if (choice === 'domain' && window.PTMDomainGraph) {
+            window.PTMDomainGraph.activate();
+        }
+    });
+});
+</script>
 {% endblock %}

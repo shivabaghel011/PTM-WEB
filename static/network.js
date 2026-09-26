@@ -901,4 +901,408 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // ──────────────────────────────────────────────────────────────
+    // 8. DOMAIN GRAPH VIEW — D3.js linear track
+    //    PTM sites: from the site's OWN curated data (node.ptms_raw, already embedded
+    //               in NETWORK_DATA by app.py from UniProt_25Jun2026.tsv). No network call,
+    //               instant, and consistent with the rest of the site (tables, etc.).
+    //    Domain boundaries: not present in the curated TSVs, so fetched from the backend
+    //               /api/domains/<accession> (UniProt "Domain" feature + InterPro/Pfam),
+    //               with a direct-UniProt-from-browser fallback if that route isn't reachable.
+    // ──────────────────────────────────────────────────────────────
+
+    (function () {
+        var container  = document.getElementById('domain-cy');
+        var statusEl    = document.getElementById('domain-status');
+        var selectWrap  = document.getElementById('domain-protein-select-wrap');
+        var selectEl    = document.getElementById('domain-protein-select');
+        var tooltip     = document.getElementById('domain-tooltip');
+
+        if (!container || typeof d3 === 'undefined' || !NETWORK_DATA || !NETWORK_DATA.nodes) return;
+
+        // Only the query protein(s) get a domain graph — not every interactor in the network.
+        var queryNodes = NETWORK_DATA.nodes.filter(function (n) {
+            return QUERY_GENES.indexOf(n.id) >= 0 && n.accession;
+        });
+
+        var loadedFor = null; // accession currently drawn, so we don't refetch on every toggle
+        var zoomBehavior = null;
+        var svg;
+
+        if (queryNodes.length === 0) {
+            if (statusEl) statusEl.textContent = 'No accession available for the queried protein(s) — cannot build a domain graph.';
+            return;
+        }
+
+        if (queryNodes.length > 1) {
+            selectWrap.style.display = '';
+            queryNodes.forEach(function (n) {
+                var opt = document.createElement('option');
+                opt.value = n.id;
+                opt.textContent = n.label + ' (' + n.accession + ')';
+                selectEl.appendChild(opt);
+            });
+            selectEl.addEventListener('change', function () { loadForGene(selectEl.value); });
+        }
+
+        var purple = getComputedStyle(document.documentElement).getPropertyValue('--purple').trim() || '#7c3aed';
+        function roleColor(role) {
+            if (role === 'writer') return '#e11d48';
+            if (role === 'eraser') return '#22c55e';
+            if (role === 'both')   return purple;
+            return '#94a3b8';
+        }
+
+        // PTM chemical sub-type → shape, independent of writer/eraser role (which is color).
+        // So a marker's COLOR tells you the protein's role, its SHAPE tells you the modification type.
+        var PTM_CATEGORIES = {
+            phospho:    { label: 'Phosphorylation',    symbol: d3.symbolTriangle },
+            acetyl:     { label: 'Acetylation',         symbol: d3.symbolCircle },
+            acyl:       { label: 'Acylation (succinyl/glutaryl/malonyl…)', symbol: d3.symbolSquare2 },
+            methyl:     { label: 'Methylation',         symbol: d3.symbolSquare },
+            ubiquitin:  { label: 'Ubiquitin / SUMO',    symbol: d3.symbolDiamond },
+            glyco:      { label: 'Glycosylation',       symbol: d3.symbolWye },
+            lipid:      { label: 'Lipidation',          symbol: d3.symbolCross },
+            hydroxyl:   { label: 'Hydroxylation',       symbol: d3.symbolStar },
+            nitration:  { label: 'Nitration',           symbol: d3.symbolX },
+            adpRibosyl: { label: 'ADP-ribosylation',    symbol: d3.symbolDiamond2 },
+            citrullin:  { label: 'Citrullination',      symbol: d3.symbolPlus },
+            other:      { label: 'Other modification',  symbol: d3.symbolAsterisk }
+        };
+        // Classifies by the short modification name as it appears in the curated PTMs column
+        // (e.g. "Acetylation", "Phosphoprotein", "Glutarylation", "Nitration"...).
+        function classifyPtmCategory(name, featureType) {
+            var d = (name || '').toLowerCase();
+            if (featureType === 'Glycosylation') return 'glyco';
+            if (featureType === 'Lipidation') return 'lipid';
+            if (d.indexOf('phospho') >= 0) return 'phospho';
+            if (d.indexOf('acetyl') >= 0) return 'acetyl';
+            if (/(glutaryl|succinyl|malonyl|crotonyl|propionyl|butyryl)/.test(d)) return 'acyl';
+            if (d.indexOf('methyl') >= 0) return 'methyl';
+            if (d.indexOf('ubiquitin') >= 0 || d.indexOf('sumo') >= 0 || d.indexOf('isopeptide') >= 0) return 'ubiquitin';
+            if (d.indexOf('glyco') >= 0) return 'glyco';
+            if (/(palmitoyl|myristoyl|prenyl|farnesyl|geranylgeranyl)/.test(d)) return 'lipid';
+            if (d.indexOf('hydroxy') >= 0) return 'hydroxyl';
+            if (d.indexOf('nitrat') >= 0) return 'nitration';
+            if (d.indexOf('adp-ribosyl') >= 0 || d.indexOf('adp ribosyl') >= 0) return 'adpRibosyl';
+            if (d.indexOf('citrullin') >= 0) return 'citrullin';
+            return 'other';
+        }
+
+        // Parses PTM features straight from a live UniProtKB JSON entry (used by the direct-
+        // fetch fallback, when the backend route can't be reached). Mirrors what the backend's
+        // fetch_uniprot_domain_data() does server-side.
+        function parseLiveUniProtPtms(entry, role) {
+            var ptms = [];
+            (entry.features || []).forEach(function (f) {
+                if (['Modified residue', 'Cross-link', 'Lipidation', 'Glycosylation'].indexOf(f.type) < 0) return;
+                var start = f.location && f.location.start && f.location.start.value;
+                if (!start) return;
+                var desc = f.description || f.type;
+                ptms.push({ position: start, type: desc, role: role, category: classifyPtmCategory(desc, f.type) });
+            });
+            return ptms;
+        }
+
+        // Last-resort fallback only: the site's own curated "PTMs" column (node.ptms_raw),
+        // used only when live UniProt is unreachable through both the backend and direct fetch.
+        // Format: "Acetylation|K|549 | Phosphoprotein|T|735 | ..."
+        function parsePtmsRaw(raw, role) {
+            if (!raw || raw === 'NA') return [];
+            return raw.split(' | ').map(function (part) {
+                var bits = part.split('|');
+                var name = (bits[0] || '').trim();
+                var pos = parseInt((bits[2] || '').trim(), 10);
+                if (!name || isNaN(pos)) return null;
+                return { position: pos, type: name, role: role, category: classifyPtmCategory(name) };
+            }).filter(Boolean);
+        }
+
+        function showTip(evt, html) {
+            var rect = container.getBoundingClientRect();
+            tooltip.style.display = 'block';
+            tooltip.style.left = (evt.clientX - rect.left + 14) + 'px';
+            tooltip.style.top = (evt.clientY - rect.top - 10) + 'px';
+            tooltip.innerHTML = html;
+        }
+        function hideTip() { tooltip.style.display = 'none'; }
+
+        // Click-to-expand residue sequence panel (matches UniProt's own Family & Domains UX)
+        var seqPanel  = document.getElementById('domain-sequence-panel');
+        var seqTitle  = document.getElementById('domain-sequence-title');
+        var seqBody   = document.getElementById('domain-sequence-body');
+        var seqCloseBtn = document.getElementById('domain-sequence-close');
+        var openDomainKey = null; // "start-end" of the currently expanded domain, so a second click collapses it
+
+        function formatSequence(seq) {
+            // Wrap into 60-char lines, UniProt-style, in a monospace block.
+            var lines = [];
+            for (var i = 0; i < seq.length; i += 60) lines.push(seq.slice(i, i + 60));
+            return lines.join('\n');
+        }
+
+        function closeSeqPanel() {
+            if (seqPanel) seqPanel.style.display = 'none';
+            openDomainKey = null;
+        }
+
+        function toggleDomainSequence(d, sequence) {
+            if (!seqPanel) return;
+            var key = d.start + '-' + d.end + ':' + d.name;
+            if (openDomainKey === key) { closeSeqPanel(); return; }
+            openDomainKey = key;
+
+            seqTitle.textContent = d.name + '  ·  residues ' + d.start + '–' + d.end + ' (' + (d.end - d.start + 1) + ' aa)';
+            if (sequence) {
+                var slice = sequence.substring(d.start - 1, d.end);
+                seqBody.textContent = formatSequence(slice);
+                seqBody.classList.remove('domain-sequence-empty');
+            } else {
+                seqBody.textContent = 'Sequence unavailable for this domain (backend/UniProt request for the full sequence failed).';
+                seqBody.classList.add('domain-sequence-empty');
+            }
+            seqPanel.style.display = '';
+        }
+
+        if (seqCloseBtn) seqCloseBtn.addEventListener('click', closeSeqPanel);
+
+        // Draws one UniProt-style track: a slim light-gray backbone bar spanning the full
+        // protein, with colored domain segments layered on top. Segment labels are drawn
+        // INSIDE the segment (white text) only when there's room — otherwise rely on the
+        // hover tooltip / click-to-expand-sequence for the name. No separate label row,
+        // which is what kept pushing the old layout's height past its box.
+        function drawDomainTrack(gRoot, xScaleFn, domains, trackY, fillColor, sequence, length) {
+            var g = gRoot.append('g').attr('class', 'dg-track');
+
+            g.append('rect').attr('class', 'dg-track-backbone')
+                .attr('x', xScaleFn(0)).attr('y', trackY - 6)
+                .attr('width', Math.max(xScaleFn(length) - xScaleFn(0), 1))
+                .attr('height', 12).attr('rx', 6);
+
+            var seg = g.selectAll('.dg-domain-rect').data(domains).enter().append('rect')
+                .attr('class', 'dg-domain-rect')
+                .attr('x', function (d) { return xScaleFn(d.start); })
+                .attr('y', trackY - 6)
+                .attr('width', function (d) { return Math.max(xScaleFn(d.end) - xScaleFn(d.start), 3); })
+                .attr('height', 12).attr('rx', 3)
+                .attr('fill', fillColor)
+                .on('mousemove', function (evt, d) { showTip(evt, '<strong>' + d.name + '</strong><br>Residues ' + d.start + '–' + d.end + '<br><em>Click to view sequence</em>'); })
+                .on('mouseleave', hideTip)
+                .on('click', function (evt, d) { toggleDomainSequence(d, sequence); });
+
+            var labels = g.selectAll('.dg-domain-inline-label').data(domains).enter().append('text')
+                .attr('class', 'dg-domain-inline-label')
+                .attr('x', function (d) { return (xScaleFn(d.start) + xScaleFn(d.end)) / 2; })
+                .attr('y', trackY + 4)
+                .attr('text-anchor', 'middle')
+                .style('pointer-events', 'none')
+                .text(function (d) {
+                    var w = xScaleFn(d.end) - xScaleFn(d.start);
+                    return (d.name.length * 5.6) < (w - 8) ? d.name : '';
+                });
+
+            return { seg: seg, labels: labels };
+        }
+
+        function renderGraph(node, data) {
+            // data = { length, sequence, uniprotDomains, pfamDomains, ptms, source }
+            container.innerHTML = '';
+            closeSeqPanel(); // switching protein/redrawing — any previously-open sequence is stale
+            var hasPfam = data.pfamDomains && data.pfamDomains.length > 0;
+            var margin = { top: 22, right: 20, bottom: 14, left: 58 };
+            var width  = Math.max(container.clientWidth, 320);
+            var ptmZoneH  = 36;
+            var trackGap  = 22;
+            var height = margin.top + ptmZoneH + trackGap * (hasPfam ? 1 : 0.4) + margin.bottom + 6;
+            var length = data.length || (function () {
+                var maxPos = 0;
+                data.ptms.forEach(function (p) { if (p.position > maxPos) maxPos = p.position; });
+                data.uniprotDomains.concat(data.pfamDomains).forEach(function (d) { if (d.end > maxPos) maxPos = d.end; });
+                return maxPos ? maxPos + 50 : 500;
+            })();
+
+            var uniY  = margin.top + ptmZoneH;
+            var pfamY = uniY + trackGap;
+
+            svg = d3.select(container).append('svg')
+                .attr('width', width).attr('height', height)
+                .style('display', 'block');
+
+            var clipId = 'dg-clip-' + node.id;
+            svg.append('clipPath').attr('id', clipId).append('rect')
+                .attr('x', margin.left).attr('y', 0)
+                .attr('width', width - margin.left - margin.right).attr('height', height);
+
+            var gRoot = svg.append('g').attr('clip-path', 'url(#' + clipId + ')');
+
+            var baseX = d3.scaleLinear().domain([0, length]).range([margin.left, width - margin.right]);
+
+            // Ruler on top, UniProt-style
+            var gAxis = svg.append('g')
+                .attr('class', 'dg-axis')
+                .attr('transform', 'translate(0,' + margin.top + ')')
+                .call(d3.axisTop(baseX).ticks(Math.max(Math.floor(width / 90), 4)).tickFormat(d3.format('d')));
+
+            var gUni  = drawDomainTrack(gRoot, baseX, data.uniprotDomains, uniY, '#3b6fd4', data.sequence, length);
+            svg.append('text').attr('class', 'dg-track-name').attr('x', 4).attr('y', uniY + 4).text('UniProt');
+
+            var gPfam = null;
+            if (hasPfam) {
+                gPfam = drawDomainTrack(gRoot, baseX, data.pfamDomains, pfamY, '#2f9e7a', data.sequence, length);
+                svg.append('text').attr('class', 'dg-track-name').attr('x', 4).attr('y', pfamY + 4).text('Pfam');
+            }
+
+            if (data.uniprotDomains.length === 0 && !hasPfam) {
+                gRoot.append('text').attr('class', 'dg-no-domains')
+                    .attr('x', (baseX(0) + baseX(length)) / 2).attr('y', uniY + 4)
+                    .attr('text-anchor', 'middle').text('No domain boundaries available for this accession.');
+            }
+
+            // PTM lollipops — thin stem from the UniProt backbone up to a shape+color marker.
+            // SHAPE = modification type, COLOR = protein's writer/eraser/both role.
+            var gPtms = gRoot.append('g').attr('class', 'dg-ptms');
+            gPtms.selectAll('.dg-ptm-stem').data(data.ptms).enter().append('line')
+                .attr('class', 'dg-ptm-stem')
+                .attr('x1', function (d) { return baseX(d.position); })
+                .attr('x2', function (d) { return baseX(d.position); })
+                .attr('y1', uniY - 7).attr('y2', margin.top + 10);
+            gPtms.selectAll('.dg-ptm-mark').data(data.ptms).enter().append('path')
+                .attr('class', 'dg-ptm-mark')
+                .each(function (d) {
+                    var cat = PTM_CATEGORIES[d.category] || PTM_CATEGORIES.other;
+                    d3.select(this).attr('d', d3.symbol().type(cat.symbol).size(60));
+                })
+                .attr('fill', function (d) { return roleColor(d.role); })
+                .attr('transform', function (d) { return 'translate(' + baseX(d.position) + ',' + (margin.top + 8) + ')'; })
+                .on('mousemove', function (evt, d) {
+                    var cat = PTM_CATEGORIES[d.category] || PTM_CATEGORIES.other;
+                    showTip(evt, '<strong>' + d.type + '</strong><br>' + cat.label + ' · Position ' + d.position);
+                })
+                .on('mouseleave', hideTip);
+
+            // Dynamic PTM-type legend — only shapes actually present on this protein
+            var typeLegendEl = document.getElementById('domain-type-legend');
+            if (typeLegendEl) {
+                var seen = {};
+                data.ptms.forEach(function (p) { seen[p.category] = true; });
+                var cats = Object.keys(seen);
+                typeLegendEl.innerHTML = '';
+                if (cats.length) {
+                    var headingEl = document.createElement('span');
+                    headingEl.className = 'dg-type-legend-heading';
+                    headingEl.textContent = 'Modification type:';
+                    typeLegendEl.appendChild(headingEl);
+                    cats.forEach(function (key) {
+                        var cat = PTM_CATEGORIES[key] || PTM_CATEGORIES.other;
+                        var item = document.createElement('span');
+                        item.className = 'dg-type-legend-item';
+                        var iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                        iconSvg.setAttribute('width', 14); iconSvg.setAttribute('height', 14);
+                        var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        path.setAttribute('d', d3.symbol().type(cat.symbol).size(60)());
+                        path.setAttribute('transform', 'translate(7,7)');
+                        path.setAttribute('fill', '#7c8aa3');
+                        iconSvg.appendChild(path);
+                        item.appendChild(iconSvg);
+                        item.appendChild(document.createTextNode(' ' + cat.label));
+                        typeLegendEl.appendChild(item);
+                    });
+                }
+            }
+
+            // Horizontal pan/zoom
+            zoomBehavior = d3.zoom()
+                .scaleExtent([1, 25])
+                .translateExtent([[margin.left, 0], [width - margin.right, height]])
+                .extent([[margin.left, 0], [width - margin.right, height]])
+                .on('zoom', function (evt) {
+                    var zx = evt.transform.rescaleX(baseX);
+                    gAxis.call(d3.axisTop(zx).ticks(Math.max(Math.floor(width / 90), 4)).tickFormat(d3.format('d')));
+                    [gUni, gPfam].forEach(function (trk) {
+                        if (!trk) return;
+                        trk.seg
+                            .attr('x', function (d) { return zx(d.start); })
+                            .attr('width', function (d) { return Math.max(zx(d.end) - zx(d.start), 3); });
+                        trk.labels.attr('x', function (d) { return (zx(d.start) + zx(d.end)) / 2; });
+                    });
+                    gRoot.selectAll('.dg-track-backbone').attr('x', zx(0)).attr('width', Math.max(zx(length) - zx(0), 1));
+                    gPtms.selectAll('.dg-ptm-stem')
+                        .attr('x1', function (d) { return zx(d.position); })
+                        .attr('x2', function (d) { return zx(d.position); });
+                    gPtms.selectAll('.dg-ptm-mark')
+                        .attr('transform', function (d) { return 'translate(' + zx(d.position) + ',' + (margin.top + 8) + ')'; });
+                });
+            svg.call(zoomBehavior);
+
+            var sourceNote = data.source === 'backend' ? '(source: UniProt, live — via backend)'
+                            : data.source === 'uniprot-direct' ? '(source: UniProt, live — direct, backend unreachable)'
+                            : '(offline fallback: site\'s own curated data — live UniProt unreachable)';
+            statusEl.textContent = node.label + ' (' + node.accession + ') — ' +
+                (data.uniprotDomains.length + (data.pfamDomains ? data.pfamDomains.length : 0)) + ' domain regions, ' +
+                data.ptms.length + ' PTM sites ' + sourceNote + '. Scroll to zoom, drag to pan.';
+        }
+
+        function fallbackDirectUniProt(node) {
+            statusEl.textContent = 'Backend /api/domains not reachable — falling back to a direct UniProt call for domains + PTMs (live)…';
+            fetch('https://rest.uniprot.org/uniprotkb/' + node.accession + '.json?fields=sequence,ft_domain,ft_mod_res,ft_carbohyd,ft_lipid,ft_crosslnk')
+                .then(function (res) { if (!res.ok) throw new Error('UniProt request failed (' + res.status + ')'); return res.json(); })
+                .then(function (entry) {
+                    var length = entry.sequence ? entry.sequence.length : null;
+                    var sequence = entry.sequence ? entry.sequence.value : null;
+                    var uniprotDomains = [];
+                    (entry.features || []).forEach(function (f) {
+                        if (f.type !== 'Domain') return;
+                        var start = f.location && f.location.start && f.location.start.value;
+                        var end = f.location && f.location.end && f.location.end.value;
+                        if (start) uniprotDomains.push({ start: start, end: end || start, name: f.description || 'Domain' });
+                    });
+                    var ptms = parseLiveUniProtPtms(entry, node.role);
+                    renderGraph(node, { length: length, sequence: sequence, uniprotDomains: uniprotDomains, pfamDomains: [], ptms: ptms, source: 'uniprot-direct' });
+                })
+                .catch(function (err) {
+                    console.error(err);
+                    // Total network failure — last resort: the site's own curated PTM data, so the
+                    // graph isn't empty. Clearly labelled as offline/curated in the status line.
+                    var curatedPtms = parsePtmsRaw(node.ptms_raw, node.role);
+                    renderGraph(node, { length: null, sequence: null, uniprotDomains: [], pfamDomains: [], ptms: curatedPtms, source: 'ptm-only-curated' });
+                });
+        }
+
+        function loadForGene(geneId) {
+            var node = queryNodes.filter(function (n) { return n.id === geneId; })[0] || queryNodes[0];
+            if (loadedFor === node.accession) return;
+            loadedFor = node.accession;
+
+            statusEl.textContent = 'Fetching domain boundaries & PTM sites for ' + node.label + ' (' + node.accession + ') from UniProt…';
+
+            fetch('/api/domains/' + encodeURIComponent(node.accession))
+                .then(function (res) {
+                    if (!res.ok) throw new Error('Backend request failed (' + res.status + ')');
+                    return res.json();
+                })
+                .then(function (payload) {
+                    renderGraph(node, {
+                        length: payload.length,
+                        sequence: payload.sequence || null,
+                        uniprotDomains: (payload.domain_tracks && payload.domain_tracks.uniprot) || [],
+                        pfamDomains: (payload.domain_tracks && payload.domain_tracks.pfam) || [],
+                        ptms: payload.ptms || [], // backend already fetched live from UniProt + assigned our curated role
+                        source: 'backend'
+                    });
+                })
+                .catch(function (err) {
+                    console.warn('Backend /api/domains unavailable, falling back:', err);
+                    fallbackDirectUniProt(node);
+                });
+        }
+
+        window.PTMDomainGraph = {
+            activate: function () {
+                var geneId = selectEl.value || queryNodes[0].id;
+                loadForGene(geneId);
+                if (svg) svg.attr('width', Math.max(container.clientWidth, 320));
+            }
+        };
+    })();
+
 });

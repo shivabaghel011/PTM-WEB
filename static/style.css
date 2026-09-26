@@ -946,6 +946,94 @@ textarea.multi-line-textarea:focus {
     font-weight: 500;
 }
 
+/* View switcher dropdown (Interaction Network / Domain Graph / Pathway Cascade) */
+.view-select-wrap { position: relative; display: inline-flex; align-items: center; }
+.view-select {
+    appearance: none; -webkit-appearance: none; -moz-appearance: none;
+    background: var(--bg-card); border: 1px solid var(--border-light);
+    border-radius: 8px; padding: 8px 32px 8px 14px;
+    font-size: 1rem; font-weight: 700; color: var(--text);
+    cursor: pointer; transition: all var(--transition);
+}
+.view-select:hover { border-color: var(--blue); }
+.view-select:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
+.view-select-caret {
+    position: absolute; right: 10px; pointer-events: none; color: var(--text-muted);
+}
+
+/* View panels (switched via the dropdown above) */
+.view-panel { display: flex; flex-direction: column; height: 100%; width: 100%; min-height: 0; }
+/* Domain Graph specifically: if content (graph + legends + the sequence-expand panel) ever
+   exceeds the box, scroll INSIDE this panel rather than overflowing into the table below. */
+#view-panel-domain { overflow-y: auto; overflow-x: hidden; }
+#view-panel-domain > * { flex-shrink: 0; }
+.view-placeholder {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; color: var(--text-muted); text-align: center; padding: 60px 20px;
+}
+.view-placeholder h2 { color: var(--text); font-size: 1.2rem; margin: 0; }
+.view-placeholder p { margin: 0; font-size: 0.9rem; }
+
+/* Domain Graph view */
+.domain-graph-topbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    padding: 12px 20px; border-bottom: 1px solid var(--border);
+}
+.domain-protein-select-wrap { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-muted); }
+.domain-protein-select-wrap select {
+    padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border-light);
+    background: var(--bg-card); color: var(--text); font-size: 0.85rem;
+}
+.domain-status { font-size: 0.82rem; color: var(--text-muted); }
+.domain-cy { flex-shrink: 0; position: relative; background: var(--bg-card); cursor: grab; padding: 6px 0; }
+.domain-cy:active { cursor: grabbing; }
+.domain-cy svg .dg-track-backbone { fill: #dbe2f0; }
+.domain-cy svg .dg-domain-rect { fill-opacity: 0.95; cursor: pointer; transition: fill-opacity 0.1s; }
+.domain-cy svg .dg-domain-rect:hover { fill-opacity: 1; }
+.domain-cy svg .dg-domain-inline-label { font-size: 9px; fill: #fff; font-weight: 700; }
+.domain-cy svg .dg-ptm-stem { stroke: var(--border-light); stroke-width: 1.3px; }
+.domain-cy svg .dg-ptm-mark { stroke: #fff; stroke-width: 1.3px; cursor: pointer; }
+.domain-cy svg .dg-axis text { fill: var(--text-muted); font-size: 9.5px; }
+.domain-cy svg .dg-axis path, .domain-cy svg .dg-axis line { stroke: var(--border-light); }
+.domain-cy svg .dg-track-name { font-size: 9px; font-weight: 700; fill: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.domain-cy svg .dg-no-domains { font-size: 11px; fill: var(--text-muted); font-style: italic; }
+.domain-type-legend {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 8px 20px 12px; font-size: 0.78rem; color: var(--text-muted);
+}
+.dg-type-legend-heading { font-weight: 600; color: var(--text); }
+.dg-type-legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.dg-type-legend-item svg { flex-shrink: 0; }
+
+/* Click-to-expand domain sequence panel */
+.domain-sequence-panel {
+    margin: 0 20px 14px; border: 1px solid var(--border-light); border-radius: 8px;
+    background: var(--bg-card2); overflow: hidden; flex-shrink: 0;
+}
+.domain-sequence-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 8px 12px; background: var(--bg-card); border-bottom: 1px solid var(--border-light);
+    font-size: 0.82rem; font-weight: 700; color: var(--text);
+}
+.domain-sequence-close {
+    background: none; border: none; color: var(--text-muted); font-size: 1.1rem;
+    line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+}
+.domain-sequence-close:hover { color: var(--text); background: var(--bg-card2); }
+.domain-sequence-body {
+    padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.78rem;
+    line-height: 1.6; color: var(--text); white-space: pre-wrap; word-break: break-all;
+    max-height: 140px; overflow-y: auto;
+}
+.domain-sequence-body.domain-sequence-empty { color: var(--text-muted); font-family: inherit; font-style: italic; }
+
+.domain-legend {
+    display: flex; gap: 18px; flex-wrap: wrap; padding: 10px 20px;
+    border-top: 1px solid var(--border); font-size: 0.78rem; color: var(--text-muted);
+}
+.domain-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dg-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
 /* Results layout section (dashboard card) */
 .results-layout {
     display: flex;
@@ -1080,7 +1168,7 @@ textarea.multi-line-textarea:focus {
 
 /* Cytoscape wrapper */
 .network-wrapper {
-    flex-shrink: 0; position: relative; min-height: 0;
+    flex-shrink: 0; position: relative; min-height: 0; overflow: hidden;
 }
 
 #cy {
@@ -1449,4 +1537,3 @@ tbody tr.node-row.expanded .expand-indicator {
     left: 100%;
     border-color: transparent transparent transparent var(--border);
 }
-
