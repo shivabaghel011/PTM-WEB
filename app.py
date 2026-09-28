@@ -985,9 +985,8 @@ def api_domains(accession):
         return jsonify({'error': f'Could not fetch UniProt data for {accession}: {e}'}), 502
 
     warnings = []
-    interpro_tracks = fetch_interpro_domain_tracks(accession)
-    if not interpro_tracks:
-        warnings.append('InterPro (Pfam/SMART) data unavailable — showing UniProt domains only.')
+    # === PTMWEB_FIX_27SEP: Pfam/InterPro intentionally disabled (see chat) ===
+    interpro_tracks = {}
 
     # Cross-reference against our own curated Master Writer/Eraser table so the
     # PTM markers are colored by OUR curated role, not a guess made on the frontend.
@@ -1020,7 +1019,9 @@ def api_domains(accession):
         'warnings': warnings,
     }
     DOMAIN_CACHE[accession] = {'ts': time.time(), 'data': result}
-    return jsonify(result)
+    resp = jsonify(result)
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return resp
 
 
 @app.route('/api/detect_species', methods=['POST'])

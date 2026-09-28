@@ -997,6 +997,11 @@ textarea.multi-line-textarea:focus {
 .domain-cy svg .dg-axis path, .domain-cy svg .dg-axis line { stroke: var(--border-light); }
 .domain-cy svg .dg-track-name { font-size: 9px; font-weight: 700; fill: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
 .domain-cy svg .dg-no-domains { font-size: 11px; fill: var(--text-muted); font-style: italic; }
+.tooltip-bubble .tip-dim { opacity: 0.75; font-size: 0.85em; }
+
+/* PTMs table cell — clickable to jump to that protein's Domain Graph */
+.ptm-cell-clickable { cursor: pointer; border-radius: 6px; transition: background 0.12s; }
+.ptm-cell-clickable:hover { background: rgba(59, 130, 246, 0.08); }
 .domain-type-legend {
     display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
     padding: 8px 20px 12px; font-size: 0.78rem; color: var(--text-muted);

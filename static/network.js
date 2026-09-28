@@ -292,6 +292,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
 
                 row.addEventListener('click', function() { handleRowClick(row, n.id); });
+
+                // Clicking a protein's PTMs cell jumps straight to that protein's own
+                // Domain Graph (replacing whichever protein's graph was showing), rather
+                // than just highlighting the row like a normal row click does.
+                var ptmCellEl = row.querySelector('.ptm-cell');
+                var hasPtmData = n.ptms_raw && n.ptms_raw !== 'NA' && n.ptms_raw.trim() !== '';
+                if (ptmCellEl && hasPtmData && n.accession) {
+                    ptmCellEl.classList.add('ptm-cell-clickable');
+                    ptmCellEl.title = 'View ' + n.label + '\u2019s domain graph';
+                    ptmCellEl.addEventListener('click', function(evt) {
+                        evt.stopPropagation();
+                        if (window.PTMDomainGraph) window.PTMDomainGraph.showGene(n.id);
+                    });
+                }
+
                 tbodyGeneral.appendChild(row);
             });
             initTableColumnResizers(tableGeneral);
@@ -920,17 +935,29 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (!container || typeof d3 === 'undefined' || !NETWORK_DATA || !NETWORK_DATA.nodes) return;
 
-        // Only the query protein(s) get a domain graph — not every interactor in the network.
-        var queryNodes = NETWORK_DATA.nodes.filter(function (n) {
+        // node.accession can be a semicolon-joined list of merged UniProt accessions
+        // (e.g. "Q92830;Q8N1A2;Q9UCW1" — a primary plus historical/secondary IDs from
+        // UniProt entry merges). Only the FIRST one is a fetchable accession; the rest
+        // are bookkeeping and aren't needed for the graph.
+        function primaryAccession(raw) {
+            return (raw || '').split(';')[0].trim();
+        }
+
+        var allNodes = NETWORK_DATA.nodes;
+        // The dropdown (for multi-gene queries) only lists the queried gene(s)...
+        var queryNodes = allNodes.filter(function (n) {
             return QUERY_GENES.indexOf(n.id) >= 0 && n.accession;
         });
+        // ...but ANY node with an accession (including interactors) can be shown here,
+        // e.g. when clicked from the PTMs column of the General Information table.
+        var hasAnyAccession = allNodes.some(function (n) { return !!n.accession; });
 
         var loadedFor = null; // accession currently drawn, so we don't refetch on every toggle
         var zoomBehavior = null;
         var svg;
 
-        if (queryNodes.length === 0) {
-            if (statusEl) statusEl.textContent = 'No accession available for the queried protein(s) — cannot build a domain graph.';
+        if (!hasAnyAccession) {
+            if (statusEl) statusEl.textContent = 'No accession available for any protein in this network — cannot build a domain graph.';
             return;
         }
 
@@ -939,7 +966,7 @@ document.addEventListener('DOMContentLoaded', function() {
             queryNodes.forEach(function (n) {
                 var opt = document.createElement('option');
                 opt.value = n.id;
-                opt.textContent = n.label + ' (' + n.accession + ')';
+                opt.textContent = n.label + ' (' + primaryAccession(n.accession) + ')';
                 selectEl.appendChild(opt);
             });
             selectEl.addEventListener('change', function () { loadForGene(selectEl.value); });
@@ -956,18 +983,18 @@ document.addEventListener('DOMContentLoaded', function() {
         // PTM chemical sub-type → shape, independent of writer/eraser role (which is color).
         // So a marker's COLOR tells you the protein's role, its SHAPE tells you the modification type.
         var PTM_CATEGORIES = {
-            phospho:    { label: 'Phosphorylation',    symbol: d3.symbolTriangle },
-            acetyl:     { label: 'Acetylation',         symbol: d3.symbolCircle },
-            acyl:       { label: 'Acylation (succinyl/glutaryl/malonyl…)', symbol: d3.symbolSquare2 },
-            methyl:     { label: 'Methylation',         symbol: d3.symbolSquare },
-            ubiquitin:  { label: 'Ubiquitin / SUMO',    symbol: d3.symbolDiamond },
-            glyco:      { label: 'Glycosylation',       symbol: d3.symbolWye },
-            lipid:      { label: 'Lipidation',          symbol: d3.symbolCross },
-            hydroxyl:   { label: 'Hydroxylation',       symbol: d3.symbolStar },
-            nitration:  { label: 'Nitration',           symbol: d3.symbolX },
-            adpRibosyl: { label: 'ADP-ribosylation',    symbol: d3.symbolDiamond2 },
-            citrullin:  { label: 'Citrullination',      symbol: d3.symbolPlus },
-            other:      { label: 'Other modification',  symbol: d3.symbolAsterisk }
+            phospho:    { label: 'Phosphorylation',    symbol: d3.symbolTriangle, color: '#3b82f6' }, // Blue
+            acetyl:     { label: 'Acetylation',         symbol: d3.symbolCircle, color: '#ef4444' }, // Red
+            acyl:       { label: 'Acylation (succinyl/glutaryl/malonyl…)', symbol: d3.symbolSquare, color: '#f97316' }, // Orange
+            methyl:     { label: 'Methylation',         symbol: d3.symbolSquare, color: '#22c55e' }, // Green
+            ubiquitin:  { label: 'Ubiquitin / SUMO',    symbol: d3.symbolDiamond, color: '#8b5cf6' }, // Purple
+            glyco:      { label: 'Glycosylation',       symbol: d3.symbolWye, color: '#ec4899' }, // Pink
+            lipid:      { label: 'Lipidation',          symbol: d3.symbolCross, color: '#14b8a6' }, // Teal
+            hydroxyl:   { label: 'Hydroxylation',       symbol: d3.symbolStar, color: '#06b6d4' }, // Cyan
+            nitration:  { label: 'Nitration',           symbol: d3.symbolWye, color: '#6366f1' }, // Indigo
+            adpRibosyl: { label: 'ADP-ribosylation',    symbol: d3.symbolDiamond, color: '#84cc16' }, // Lime
+            citrullin:  { label: 'Citrullination',      symbol: d3.symbolCross, color: '#10b981' }, // Emerald
+            other:      { label: 'Other modification',  symbol: d3.symbolStar, color: '#94a3b8' } // Grey
         };
         // Classifies by the short modification name as it appears in the curated PTMs column
         // (e.g. "Acetylation", "Phosphoprotein", "Glutarylation", "Nitration"...).
@@ -1071,7 +1098,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // INSIDE the segment (white text) only when there's room — otherwise rely on the
         // hover tooltip / click-to-expand-sequence for the name. No separate label row,
         // which is what kept pushing the old layout's height past its box.
-        function drawDomainTrack(gRoot, xScaleFn, domains, trackY, fillColor, sequence, length) {
+        function drawDomainTrack(gRoot, xScaleFn, domains, trackY, fillColor, sequence, length, sourceLabel) {
             var g = gRoot.append('g').attr('class', 'dg-track');
 
             g.append('rect').attr('class', 'dg-track-backbone')
@@ -1086,7 +1113,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 .attr('width', function (d) { return Math.max(xScaleFn(d.end) - xScaleFn(d.start), 3); })
                 .attr('height', 12).attr('rx', 3)
                 .attr('fill', fillColor)
-                .on('mousemove', function (evt, d) { showTip(evt, '<strong>' + d.name + '</strong><br>Residues ' + d.start + '–' + d.end + '<br><em>Click to view sequence</em>'); })
+                .on('mousemove', function (evt, d) { showTip(evt, '<strong>' + d.name + '</strong> <span class="tip-dim">(' + sourceLabel + ')</span><br>Residues ' + d.start + '–' + d.end + '<br><em>Click to view sequence</em>'); })
                 .on('mouseleave', hideTip)
                 .on('click', function (evt, d) { toggleDomainSequence(d, sequence); });
 
@@ -1109,7 +1136,7 @@ document.addEventListener('DOMContentLoaded', function() {
             container.innerHTML = '';
             closeSeqPanel(); // switching protein/redrawing — any previously-open sequence is stale
             var hasPfam = data.pfamDomains && data.pfamDomains.length > 0;
-            var margin = { top: 22, right: 20, bottom: 14, left: 58 };
+            var margin = { top: 22, right: 20, bottom: 14, left: 24 };
             var width  = Math.max(container.clientWidth, 320);
             var ptmZoneH  = 36;
             var trackGap  = 22;
@@ -1143,13 +1170,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 .attr('transform', 'translate(0,' + margin.top + ')')
                 .call(d3.axisTop(baseX).ticks(Math.max(Math.floor(width / 90), 4)).tickFormat(d3.format('d')));
 
-            var gUni  = drawDomainTrack(gRoot, baseX, data.uniprotDomains, uniY, '#3b6fd4', data.sequence, length);
-            svg.append('text').attr('class', 'dg-track-name').attr('x', 4).attr('y', uniY + 4).text('UniProt');
+            var gUni  = drawDomainTrack(gRoot, baseX, data.uniprotDomains, uniY, '#3b6fd4', data.sequence, length, 'UniProt');
 
             var gPfam = null;
             if (hasPfam) {
-                gPfam = drawDomainTrack(gRoot, baseX, data.pfamDomains, pfamY, '#2f9e7a', data.sequence, length);
-                svg.append('text').attr('class', 'dg-track-name').attr('x', 4).attr('y', pfamY + 4).text('Pfam');
+                gPfam = drawDomainTrack(gRoot, baseX, data.pfamDomains, pfamY, '#2f9e7a', data.sequence, length, 'Pfam');
             }
 
             if (data.uniprotDomains.length === 0 && !hasPfam) {
@@ -1172,7 +1197,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     var cat = PTM_CATEGORIES[d.category] || PTM_CATEGORIES.other;
                     d3.select(this).attr('d', d3.symbol().type(cat.symbol).size(60));
                 })
-                .attr('fill', function (d) { return roleColor(d.role); })
+                .attr('fill', function (d) { 
+                    var cat = PTM_CATEGORIES[d.category] || PTM_CATEGORIES.other;
+                    return cat.color; 
+                })
                 .attr('transform', function (d) { return 'translate(' + baseX(d.position) + ',' + (margin.top + 8) + ')'; })
                 .on('mousemove', function (evt, d) {
                     var cat = PTM_CATEGORIES[d.category] || PTM_CATEGORIES.other;
@@ -1201,7 +1229,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                         path.setAttribute('d', d3.symbol().type(cat.symbol).size(60)());
                         path.setAttribute('transform', 'translate(7,7)');
-                        path.setAttribute('fill', '#7c8aa3');
+                        path.setAttribute('fill', cat.color);
                         iconSvg.appendChild(path);
                         item.appendChild(iconSvg);
                         item.appendChild(document.createTextNode(' ' + cat.label));
@@ -1234,17 +1262,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             svg.call(zoomBehavior);
 
-            var sourceNote = data.source === 'backend' ? '(source: UniProt, live — via backend)'
-                            : data.source === 'uniprot-direct' ? '(source: UniProt, live — direct, backend unreachable)'
-                            : '(offline fallback: site\'s own curated data — live UniProt unreachable)';
-            statusEl.textContent = node.label + ' (' + node.accession + ') — ' +
+            var degradedNote = data.source === 'ptm-only-curated'
+                ? ' — showing offline curated data (UniProt unreachable right now)'
+                : '';
+            console.log('[Domain Graph] ' + node.id + ': source=' + data.source + ', accession=' + primaryAccession(node.accession));
+            statusEl.textContent = node.label + ' (' + primaryAccession(node.accession) + ')' +
+                (data.length ? ' — ' + data.length + ' aa' : '') + ' — ' +
                 (data.uniprotDomains.length + (data.pfamDomains ? data.pfamDomains.length : 0)) + ' domain regions, ' +
-                data.ptms.length + ' PTM sites ' + sourceNote + '. Scroll to zoom, drag to pan.';
+                data.ptms.length + ' PTM sites' + degradedNote + '. Scroll to zoom, drag to pan.';
         }
 
-        function fallbackDirectUniProt(node) {
-            statusEl.textContent = 'Backend /api/domains not reachable — falling back to a direct UniProt call for domains + PTMs (live)…';
-            fetch('https://rest.uniprot.org/uniprotkb/' + node.accession + '.json?fields=sequence,ft_domain,ft_mod_res,ft_carbohyd,ft_lipid,ft_crosslnk')
+        function fallbackDirectUniProt(node, primaryAccession) {
+            statusEl.textContent = 'Fetching domain boundaries & PTM sites for ' + node.label + ' (' + primaryAccession + ') from UniProt…';
+            fetch('https://rest.uniprot.org/uniprotkb/' + encodeURIComponent(primaryAccession) + '.json?fields=sequence,ft_domain,ft_mod_res,ft_carbohyd,ft_lipid,ft_crosslnk')
                 .then(function (res) { if (!res.ok) throw new Error('UniProt request failed (' + res.status + ')'); return res.json(); })
                 .then(function (entry) {
                     var length = entry.sequence ? entry.sequence.length : null;
@@ -1269,13 +1299,20 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function loadForGene(geneId) {
-            var node = queryNodes.filter(function (n) { return n.id === geneId; })[0] || queryNodes[0];
+            var node = allNodes.filter(function (n) { return n.id === geneId; })[0]
+                     || queryNodes.filter(function (n) { return n.id === geneId; })[0]
+                     || queryNodes[0];
             if (loadedFor === node.accession) return;
             loadedFor = node.accession;
 
-            statusEl.textContent = 'Fetching domain boundaries & PTM sites for ' + node.label + ' (' + node.accession + ') from UniProt…';
+            // node.accession can be a semicolon-list of merged/secondary accessions
+            // (e.g. "Q92830;Q8N1A2;Q9UCW1") — shown in full to the user for reference,
+            // but only the PRIMARY one is a valid id for UniProt/InterPro API calls.
+            var primaryAccession = (node.accession || '').split(';')[0].trim();
 
-            fetch('/api/domains/' + encodeURIComponent(node.accession))
+            statusEl.textContent = 'Fetching domain boundaries & PTM sites for ' + node.label + ' (' + primaryAccession + ') from UniProt…';
+
+            fetch('/api/domains/' + encodeURIComponent(primaryAccession), { cache: 'no-store' })
                 .then(function (res) {
                     if (!res.ok) throw new Error('Backend request failed (' + res.status + ')');
                     return res.json();
@@ -1292,13 +1329,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
                 .catch(function (err) {
                     console.warn('Backend /api/domains unavailable, falling back:', err);
-                    fallbackDirectUniProt(node);
+                    fallbackDirectUniProt(node, primaryAccession);
                 });
         }
 
         window.PTMDomainGraph = {
             activate: function () {
-                var geneId = selectEl.value || queryNodes[0].id;
+                var geneId = selectEl.value || (queryNodes[0] && queryNodes[0].id) || (allNodes.filter(function (n) { return n.accession; })[0] || {}).id;
+                if (geneId) loadForGene(geneId);
+                if (svg) svg.attr('width', Math.max(container.clientWidth, 320));
+            },
+            // Called when the user clicks a protein's PTMs cell in the General Information
+            // table: switches the whole page to the Domain Graph view and swaps in THAT
+            // protein's graph, replacing whatever was showing before.
+            showGene: function (geneId) {
+                if (window.switchResultsView) window.switchResultsView('domain');
                 loadForGene(geneId);
                 if (svg) svg.attr('width', Math.max(container.clientWidth, 320));
             }

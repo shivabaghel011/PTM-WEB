@@ -73,8 +73,8 @@
                 </div>
 
                 <!-- Legend Section -->
-                <div class="sidebar-section">
-                    <h3 class="sidebar-heading">Legend</h3>
+                <div class="sidebar-section" id="network-legend-section">
+                    <h3 class="sidebar-heading">Network Node Legend</h3>
                     <div class="legend-list">
                         <div class="legend-row"><div class="legend-shape shape-tri"></div><span>Writer</span></div>
                         <div class="legend-row"><div class="legend-shape shape-circle"></div><span>Eraser</span></div>
@@ -123,12 +123,13 @@
                 </div>
                 <div id="domain-cy" class="domain-cy"></div>
                 <div id="domain-tooltip" class="tooltip-bubble" style="display:none;"></div>
-                <div class="domain-legend">
+                <!-- <div class="domain-legend">
+                    <span style="font-weight: 700; color: var(--text); margin-right: 8px;">PTM Site Legend:</span>
                     <span><span class="dg-dot" style="background:#e11d48"></span> Writer PTM</span>
                     <span><span class="dg-dot" style="background:#22c55e"></span> Eraser PTM</span>
                     <span><span class="dg-dot" style="background:var(--purple)"></span> Writer &amp; Eraser PTM</span>
                     <span><span class="dg-dot" style="background:#cbd5e1"></span> Other modification</span>
-                </div>
+                </div> -->
                 <div class="domain-type-legend" id="domain-type-legend"></div>
                 <div class="domain-sequence-panel" id="domain-sequence-panel" style="display:none;">
                     <div class="domain-sequence-header">
@@ -275,14 +276,23 @@ document.addEventListener('DOMContentLoaded', function () {
     };
     var topbarStats = document.getElementById('topbar-stats');
 
-    viewSelect.addEventListener('change', function () {
-        var choice = viewSelect.value;
+    // Exposed globally so other scripts (e.g. a table row's "view this protein's
+    // domain graph" click in network.js) can switch views the same way the
+    // dropdown does, without duplicating this logic.
+    window.switchResultsView = function (choice) {
+        viewSelect.value = choice;
         Object.keys(panels).forEach(function (key) {
             panels[key].style.display = (key === choice) ? '' : 'none';
             panels[key].classList.toggle('active', key === choice);
         });
         // Node/edge stat chips only make sense for the interaction network view
         topbarStats.style.display = (choice === 'interaction') ? '' : 'none';
+
+        // Hide/Show Network Node Legend based on the view
+        var networkLegend = document.getElementById('network-legend-section');
+        if (networkLegend) {
+            networkLegend.style.display = (choice === 'interaction') ? '' : 'none';
+        }
 
         // Re-fit the cytoscape canvas if returning to the interaction view,
         // since it may have been laid out while hidden (0 width/height).
@@ -296,6 +306,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (choice === 'domain' && window.PTMDomainGraph) {
             window.PTMDomainGraph.activate();
         }
+    };
+
+    viewSelect.addEventListener('change', function () {
+        window.switchResultsView(viewSelect.value);
     });
 });
 </script>
