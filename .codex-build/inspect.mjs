@@ -1,0 +1,10 @@
+import fs from 'node:fs/promises';
+import {FileBlob, PresentationFile} from '@oai/artifact-tool';
+const src='D:/Desktop/ptm_web.pptx';
+const p=await PresentationFile.importPptx(await FileBlob.load(src));
+const i=await p.inspect({kind:'slide,textbox,shape,image,table,chart,notes,layout',maxChars:30000});
+await fs.writeFile('.codex-build/inspect.ndjson', i.ndjson, 'utf8');
+const m=await p.export({format:'png',montage:true,scale:1});
+await fs.writeFile('.codex-build/montage.png',new Uint8Array(await m.arrayBuffer()));
+console.log('slides',p.slides.items.length, 'size',JSON.stringify(p.slideSize));
+console.log(i.ndjson);

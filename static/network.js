@@ -1207,6 +1207,33 @@ document.addEventListener('DOMContentLoaded', function() {
                     showTip(evt, '<strong>' + d.type + '</strong><br>' + cat.label + ' · Position ' + d.position);
                 })
                 .on('mouseleave', hideTip);
+                // NAYA: Variants Draw Karein (Niche ki taraf)
+            var gVars = null;
+            if (data.variants && data.variants.length > 0) {
+                gVars = gRoot.append('g').attr('class', 'dg-variants');
+                
+                // Variant Stem (Niche ki taraf line)
+                gVars.selectAll('.dg-var-stem').data(data.variants).enter().append('line')
+                    .attr('class', 'dg-var-stem')
+                    .attr('x1', function (d) { return baseX(d.position); })
+                    .attr('x2', function (d) { return baseX(d.position); })
+                    .attr('y1', uniY + 3) // Backbone ke niche se shuru
+                    .attr('y2', uniY + 18)
+                    .attr('stroke', '#fbbf24') // Yellow-Orange line
+                    .attr('stroke-width', 1.5);
+                    
+                // Variant Mark (Diamond shape)
+                gVars.selectAll('.dg-var-mark').data(data.variants).enter().append('path')
+                    .attr('class', 'dg-var-mark')
+                    .attr('d', d3.symbol().type(d3.symbolDiamond).size(40)())
+                    .attr('fill', '#f59e0b')
+                    .attr('stroke', '#fff')
+                    .attr('transform', function (d) { return 'translate(' + baseX(d.position) + ',' + (uniY + 20) + ')'; })
+                    .on('mousemove', function (evt, d) {
+                        showTip(evt, '<strong>Variant</strong><br>Position ' + d.position + '<br><span class="tip-dim">' + d.note + '</span>');
+                    })
+                    .on('mouseleave', hideTip);
+            }
 
             // Dynamic PTM-type legend — only shapes actually present on this protein
             var typeLegendEl = document.getElementById('domain-type-legend');
@@ -1259,6 +1286,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         .attr('x2', function (d) { return zx(d.position); });
                     gPtms.selectAll('.dg-ptm-mark')
                         .attr('transform', function (d) { return 'translate(' + zx(d.position) + ',' + (margin.top + 8) + ')'; });
+                    
+                    // NAYA: Zoom update for Variants
+                    if (gVars) {
+                        gVars.selectAll('.dg-var-stem')
+                             .attr('x1', function (d) { return zx(d.position); })
+                             .attr('x2', function (d) { return zx(d.position); });
+                        gVars.selectAll('.dg-var-mark')
+                             .attr('transform', function (d) { return 'translate(' + zx(d.position) + ',' + (uniY + 20) + ')'; });
+                    }
                 });
             svg.call(zoomBehavior);
 
@@ -1266,10 +1302,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 ? ' — showing offline curated data (UniProt unreachable right now)'
                 : '';
             console.log('[Domain Graph] ' + node.id + ': source=' + data.source + ', accession=' + primaryAccession(node.accession));
-            statusEl.textContent = node.label + ' (' + primaryAccession(node.accession) + ')' +
+            
+            // NAYA: Multiple accessions dikhane ka logic
+            var allAccsText = (data.all_accessions && data.all_accessions.length > 0) 
+                              ? data.all_accessions.join(', ') 
+                              : primaryAccession(node.accession);
+                              
+            statusEl.textContent = node.label + ' (' + allAccsText + ')' +
                 (data.length ? ' — ' + data.length + ' aa' : '') + ' — ' +
-                (data.uniprotDomains.length + (data.pfamDomains ? data.pfamDomains.length : 0)) + ' domain regions, ' +
-                data.ptms.length + ' PTM sites' + degradedNote + '. Scroll to zoom, drag to pan.';
+                (data.uniprotDomains ? data.uniprotDomains.length : 0) + ' domains, ' +
+                (data.ptms ? data.ptms.length : 0) + ' PTMs, ' + 
+                (data.variants ? data.variants.length : 0) + ' Variants' + degradedNote + '. Scroll to zoom, drag to pan.';
         }
 
         function fallbackDirectUniProt(node, primaryAccession) {

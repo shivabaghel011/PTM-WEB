@@ -547,12 +547,65 @@ def detect_modification(catalytic_activity, ec_number):
     return "NA"
 
 
+# --- NAYA DOMAIN & VARIANT TSV DATA STORE ---
+DOMAIN_TSV_DATA = {}
+
+def load_domain_tsv():
+    global DOMAIN_TSV_DATA
+    path = find_data_file("Domain_Graph_Data.tsv", "E:/PTM_WEB")
+    if not os.path.exists(path):
+        print(f"[WARN] Domain_Graph_Data.tsv not found at {path}")
+        return
+    print(f"[INFO] Loading Domain and Variant data from: {path}")
+    with open(path, newline='', encoding='utf-8', errors='ignore') as fh:
+        next(fh, None) # Skip header
+        for line in fh:
+            parts = line.rstrip('\r\n').split('\t')
+            if len(parts) < 7: continue
+            gene, accs_raw, taxid, length_str, dom_raw, var_raw, seq_raw = parts
+            accs = [a.strip() for a in accs_raw.split(';') if a.strip()]
+            
+            # Parse Domains
+            domains = []
+            if dom_raw != 'NA':
+                for d in dom_raw.split(' | '):
+                    if ':' in d:
+                        loc, name = d.split(':', 1)
+                        loc_parts = loc.split('..')
+                        start = int(loc_parts[0]) if loc_parts[0].isdigit() else 0
+                        end = int(loc_parts[1]) if len(loc_parts)>1 and loc_parts[1].isdigit() else start
+                        domains.append({'start': start, 'end': end, 'name': name})
+            
+            # Parse Variants
+            variants = []
+            if var_raw != 'NA':
+                for v in var_raw.split(' | '):
+                    if ':' in v:
+                        loc, note = v.split(':', 1)
+                        loc_parts = loc.split('..')
+                        pos = int(loc_parts[0]) if loc_parts[0].isdigit() else 0
+                        variants.append({'position': pos, 'note': note})
+
+            length = int(length_str) if length_str.isdigit() else 0
+            record = {
+                'length': length, 
+                'uniprotDomains': domains, 
+                'variants': variants, 
+                'accessions': accs,
+                'sequence': seq_raw if seq_raw != 'NA' else None
+            }
+            
+            # Har accession par record map kar dein
+            for acc in accs:
+                DOMAIN_TSV_DATA[acc] = record
+
 # Run loaders at startup
 load_master_writers_erasers()
 load_uniprot_info()
 load_interactors()
 load_kinetic()
 load_species()
+load_domain_tsv()  # Nayi TSV file ko load karne ka call
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -975,50 +1028,48 @@ def api_domains(accession):
     if not accession:
         return jsonify({'error': 'No accession provided.'}), 400
 
-    cached = DOMAIN_CACHE.get(accession)
-    if cached and (time.time() - cached['ts'] < DOMAIN_CACHE_TTL_SECONDS):
-        return jsonify(cached['data'])
+    if accession not in DOMAIN_TSV_DATA:
+         return jsonify({'error': f'Accession {accession} not found in offline TSV.'}), 404
 
-    try:
-        length, sequence, uniprot_domains, ptms = fetch_uniprot_domain_data(accession)
-    except Exception as e:
-        return jsonify({'error': f'Could not fetch UniProt data for {accession}: {e}'}), 502
-
-    warnings = []
-    # === PTMWEB_FIX_27SEP: Pfam/InterPro intentionally disabled (see chat) ===
-    interpro_tracks = {}
-
-    # Cross-reference against our own curated Master Writer/Eraser table so the
-    # PTM markers are colored by OUR curated role, not a guess made on the frontend.
-    gene_name, role = '', ''
+    record = DOMAIN_TSV_DATA[accession]
+    
+    # Existing in-memory UniProt data se PTMs nikalna
     gene_taxon = accession_to_gene.get(accession)
+    gene_name, role = '', 'other'
+    ptms = []
+    
     if gene_taxon:
         gene_name, taxon = gene_taxon
         master_info = master_writers_erasers.get((gene_name, taxon))
         if master_info:
             raw_role = (master_info.get('annotation') or '').strip().lower()
-            if raw_role in ('writer-eraser', 'both', 'w/e'):
-                role = 'both'
-            elif raw_role in ('writer', 'w'):
-                role = 'writer'
-            elif raw_role in ('eraser', 'e'):
-                role = 'eraser'
-    for p in ptms:
-        p['role'] = role or 'other'
-
-    domain_tracks = {'uniprot': uniprot_domains}
-    domain_tracks.update(interpro_tracks)
+            if raw_role in ('writer-eraser', 'both', 'w/e'): role = 'both'
+            elif raw_role in ('writer', 'w'): role = 'writer'
+            elif raw_role in ('eraser', 'e'): role = 'eraser'
+            
+        info = uniprot_data.get((accession, taxon))
+        if info and info.get('ptms'):
+            for p in info['ptms']:
+                ptms.append({
+                    'position': int(p['pos']) if p['pos'].isdigit() else 0,
+                    'type': p['name'],
+                    'category': classify_ptm_category(p['name'], p['name']),
+                    'residue': p['residue'],
+                    'role': role
+                })
 
     result = {
         'accession': accession,
+        'all_accessions': record['accessions'],
         'gene': gene_name,
-        'length': length,
-        'sequence': sequence,
+        'length': record['length'],
+        'sequence': record['sequence'], # Ab sequence frontend par jayega!
         'ptms': ptms,
-        'domain_tracks': domain_tracks,
-        'warnings': warnings,
+        'variants': record['variants'],
+        'domain_tracks': {'uniprot': record['uniprotDomains'], 'pfam': []},
+        'source': 'offline-tsv'
     }
-    DOMAIN_CACHE[accession] = {'ts': time.time(), 'data': result}
+    
     resp = jsonify(result)
     resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     return resp
