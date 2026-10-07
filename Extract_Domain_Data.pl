@@ -9,14 +9,13 @@ my $out_file = "Domain_Graph_Data.tsv";
 open(my $in, '<', $dat_file) or die "Cannot open $dat_file: $!\n";
 open(my $out, '>', $out_file) or die "Cannot open $out_file: $!\n";
 
-# TSV Header mein ek naya column 'Sequence' add kiya gaya hai
-print $out "Gene_Name\tAccessions\tTaxID\tLength\tDomains\tVariants\tSequence\n";
+print $out "Gene_Name\tAccessions\tTaxID\tSpecies\tTotal Amino Acid\tDomains\tVariants\tSequence\tDomain Sequence\n";
 
-my ($gene, $taxid, $length, $sequence) = ("", "", "", "");
+my ($gene, $taxid, $species, $length, $sequence) = ("", "", "", "", "");
 my @accs;
 my (@domains, @variants);
 my ($ft_type, $ft_loc, $ft_note) = ("", "", "");
-my $in_sq = 0; # Sequence block track karne ke liye
+my $in_sq = 0; 
 
 sub save_feature {
     if ($ft_type eq 'DOMAIN' && $ft_note) {
@@ -27,7 +26,7 @@ sub save_feature {
     $ft_type = ""; $ft_loc = ""; $ft_note = "";
 }
 
-print "Parsing $dat_file (4GB) for Domains and Sequences. Please wait...\n";
+print "Parsing $dat_file. Please wait...\n";
 
 while (my $line = <$in>) {
     chomp $line;
@@ -35,23 +34,49 @@ while (my $line = <$in>) {
         save_feature();
         if (@accs && $length) {
             my $acc_str = join(";", @accs);
-            $gene = $accs[0] unless $gene;
+            $gene = $accs[0] unless $gene; 
+            
+            $species =~ s/\s+$//;
+            $species =~ s/\.$//;
+            $species = "NA" unless $species;
+
             my $dom_str = @domains ? join(" | ", @domains) : "NA";
             my $var_str = @variants ? join(" | ", @variants) : "NA";
             my $seq_str = $sequence ? $sequence : "NA";
             
-            print $out "$gene\t$acc_str\t$taxid\t$length\t$dom_str\t$var_str\t$seq_str\n";
+            my @dom_seqs;
+            if ($sequence) {
+                foreach my $d (@domains) {
+                    if ($d =~ /^(\d+)\.\.(\d+):/) {
+                        my $start = $1;
+                        my $end = $2;
+                        if ($start > 0 && $end >= $start && $end <= length($sequence)) {
+                            my $d_seq = substr($sequence, $start - 1, $end - $start + 1);
+                            push @dom_seqs, "$start..$end:$d_seq";
+                        }
+                    }
+                }
+            }
+            my $dom_seq_str = @dom_seqs ? join(" | ", @dom_seqs) : "NA";
+
+            print $out "$gene\t$acc_str\t$taxid\t$species\t$length\t$dom_str\t$var_str\t$seq_str\t$dom_seq_str\n";
         }
-        # Reset variables
-        $gene = $taxid = $length = $sequence = "";
+        $gene = $taxid = $species = $length = $sequence = "";
         @accs = @domains = @variants = ();
         $in_sq = 0;
-    } elsif ($line =~ /^AC\s+(.*)/) {
+    } 
+    # NAYA: ID line se "_" se pehle ka hissa Gene Name ke roop mein nikalna
+    elsif ($line =~ /^ID\s+([^_]+)_/) {
+        $gene = $1;
+    } 
+    elsif ($line =~ /^AC\s+(.*)/) {
         my $ac_line = $1;
         push @accs, grep { $_ } map { s/\s+//g; s/;//g; $_ } split(/;/, $ac_line);
-    } elsif ($line =~ /^GN\s+Name=([^;{\s]+)/) {
-        $gene = $1 unless $gene;
-    } elsif ($line =~ /^OX\s+NCBI_TaxID=(\d+)/) {
+    } 
+    elsif ($line =~ /^OS\s+(.+)/) {
+        $species .= $1 . " ";
+    } 
+    elsif ($line =~ /^OX\s+NCBI_TaxID=(\d+)/) {
         $taxid = $1;
     } elsif ($line =~ /^FT\s+([A-Z_]+)\s+([\d<>?.]+(?:\.\.[\d<>?.]+)?)/) {
         save_feature();
@@ -68,13 +93,12 @@ while (my $line = <$in>) {
         $ft_note .= " " . $extra;
     } elsif ($line =~ /^SQ\s+SEQUENCE\s+(\d+)\s+AA/) {
         $length = $1;
-        $in_sq = 1; # Sequence block start
+        $in_sq = 1; 
     } elsif ($in_sq && $line !~ /^[A-Z]{2}\s/) {
-        # Sequence block ke andar ki spaces hata kar add karna
         my $seq_part = $line;
         $seq_part =~ s/\s+//g;
         $sequence .= $seq_part;
     }
 }
 close($in); close($out);
-print "Success: Domain_Graph_Data.tsv with Sequences has been created!\n";
+print "Success: Domain_Graph_Data.tsv updated successfully!\n";

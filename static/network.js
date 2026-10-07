@@ -1113,7 +1113,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 .attr('width', function (d) { return Math.max(xScaleFn(d.end) - xScaleFn(d.start), 3); })
                 .attr('height', 12).attr('rx', 3)
                 .attr('fill', fillColor)
-                .on('mousemove', function (evt, d) { showTip(evt, '<strong>' + d.name + '</strong> <span class="tip-dim">(' + sourceLabel + ')</span><br>Residues ' + d.start + '–' + d.end + '<br><em>Click to view sequence</em>'); })
+                .on('mousemove', function (evt, d) { showTip(evt, '<strong>' + d.name + '</strong><br>Residues ' + d.start + '–' + d.end + '<br><em>Click to view sequence</em>'); })
                 .on('mouseleave', hideTip)
                 .on('click', function (evt, d) { toggleDomainSequence(d, sequence); });
 
@@ -1230,7 +1230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     .attr('stroke', '#fff')
                     .attr('transform', function (d) { return 'translate(' + baseX(d.position) + ',' + (uniY + 20) + ')'; })
                     .on('mousemove', function (evt, d) {
-                        showTip(evt, '<strong>Variant</strong><br>Position ' + d.position + '<br><span class="tip-dim">' + d.note + '</span>');
+                        showTip(evt, '<strong>Variant</strong><br>Position ' + d.location + '<br><span class="tip-dim">' + d.note + '</span>');
                     })
                     .on('mouseleave', hideTip);
             }
@@ -1361,15 +1361,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     return res.json();
                 })
                 .then(function (payload) {
-                    renderGraph(node, {
-                        length: payload.length,
-                        sequence: payload.sequence || null,
-                        uniprotDomains: (payload.domain_tracks && payload.domain_tracks.uniprot) || [],
-                        pfamDomains: (payload.domain_tracks && payload.domain_tracks.pfam) || [],
-                        ptms: payload.ptms || [], // backend already fetched live from UniProt + assigned our curated role
-                        source: 'backend'
-                    });
-                })
+                renderGraph(node, {
+                    length: payload.length,
+                    sequence: payload.sequence || null,
+                    uniprotDomains: (payload.domain_tracks && payload.domain_tracks.uniprot) || [],
+                    pfamDomains: (payload.domain_tracks && payload.domain_tracks.pfam) || [],
+                    ptms: payload.ptms || [],
+                    variants: payload.variants || [],         // NAYA: Variants pass ho rahe hain
+                    all_accessions: payload.all_accessions,   // NAYA: Sabhi accessions pass ho rahe hain
+                    source: 'offline-tsv'
+                });
+            })
                 .catch(function (err) {
                     console.warn('Backend /api/domains unavailable, falling back:', err);
                     fallbackDirectUniProt(node, primaryAccession);

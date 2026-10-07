@@ -561,8 +561,9 @@ def load_domain_tsv():
         next(fh, None) # Skip header
         for line in fh:
             parts = line.rstrip('\r\n').split('\t')
-            if len(parts) < 7: continue
-            gene, accs_raw, taxid, length_str, dom_raw, var_raw, seq_raw = parts
+            if len(parts) < 9: continue
+            # Naye columns (species aur dom_seq_raw) unpack ho rahe hain
+            gene, accs_raw, taxid, species, length_str, dom_raw, var_raw, seq_raw, dom_seq_raw = parts
             accs = [a.strip() for a in accs_raw.split(';') if a.strip()]
             
             # Parse Domains
@@ -584,7 +585,8 @@ def load_domain_tsv():
                         loc, note = v.split(':', 1)
                         loc_parts = loc.split('..')
                         pos = int(loc_parts[0]) if loc_parts[0].isdigit() else 0
-                        variants.append({'position': pos, 'note': note})
+                        # NAYA: 'location': loc add kiya gaya h taaki puri range frontend par ja sake
+                        variants.append({'position': pos, 'location': loc, 'note': note})
 
             length = int(length_str) if length_str.isdigit() else 0
             record = {
